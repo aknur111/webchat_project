@@ -1,4 +1,3 @@
-# src/utils/ws_manager.py
 from __future__ import annotations
 from typing import Dict, Set, DefaultDict
 from collections import defaultdict
