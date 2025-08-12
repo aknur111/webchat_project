@@ -1,15 +1,21 @@
-# Ignore IDE configs
-.idea/
-
-# Ignore Python cache
+# Python
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
 *.pyd
+*.sqlite3
 
-# Byte-compiled / optimized / DLL files
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Environment variables
+.env
+
+# IDE configs
+.idea/
+.vscode/
+
+# Alembic cache
+alembic/__pycache__/
