@@ -2,28 +2,44 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from src.config.database import get_db
+from src.models.chat_member import ChatMember
 from src.models.chat import Chat
-from src.models.user import User
 from src.models.message import Message
+from src.models.user import User
+from src.utils.jwt import decode_token
 from src.utils.ws_manager import WSManager
 
 router = APIRouter(tags=["ws"])
 manager = WSManager()
+COOKIE_NAME = "access_token"
 
 @router.websocket("/ws/{chat_id}")
-async def ws_chat(ws: WebSocket, chat_id: int, user_id: int, db: Session = Depends(get_db)):
+async def ws_endpoint(websocket: WebSocket, chat_id: int, db: Session = Depends(get_db)):
+    token = websocket.cookies.get(COOKIE_NAME) or websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4401, reason="Missing token"); return
+
+    try:
+        payload = decode_token(token)
+        user_id = int(payload["sub"])
+    except Exception:
+        await websocket.close(code=4401, reason="Invalid token"); return
+
+    member = db.query(ChatMember).filter(
+        ChatMember.chat_id == chat_id, ChatMember.user_id == user_id
+    ).first()
+    if not member:
+        await websocket.close(code=4403, reason="Not a member of chat"); return
+
+    await manager.connect(chat_id, websocket)
+
+    await websocket.send_text(f"System: connected as user {user_id}")
+
     chat = db.get(Chat, chat_id)
-    user = db.get(User, user_id)
-    if not chat or not user:
-        await ws.close(code=4404)
-        return
-
-    await manager.connect(chat_id, ws)
-
-    if chat.pinned_message_id:
+    if chat and chat.pinned_message_id:
         pinned = db.get(Message, chat.pinned_message_id)
         if pinned:
-            await ws.send_text(f"PINNED::{pinned.content}")
+            await websocket.send_text(f"PINNED::{pinned.content}")
 
     hist = db.execute(
         select(Message, User.username)
@@ -33,11 +49,12 @@ async def ws_chat(ws: WebSocket, chat_id: int, user_id: int, db: Session = Depen
         .limit(50)
     ).all()
     for m, u in hist:
-        await ws.send_text(f"{(u or 'anonymous')}: {m.content}")
+        await websocket.send_text(f"{(u or 'anonymous')}: {m.content}")
 
     try:
         while True:
-            text_in = await ws.receive_text()
+            text_in = await websocket.receive_text()
+            print(f"[WS] recv chat={chat_id} user={user_id} text={text_in!r}")
 
             if text_in.startswith("/pin "):
                 needle = text_in[5:].strip()
@@ -48,7 +65,7 @@ async def ws_chat(ws: WebSocket, chat_id: int, user_id: int, db: Session = Depen
                     ).order_by(Message.created_at.asc())
                 )
                 if not found:
-                    await ws.send_text("System: message not found in this chat")
+                    await websocket.send_text("System: message not found in this chat")
                     continue
 
                 chat.pinned_message_id = found.id
@@ -56,13 +73,15 @@ async def ws_chat(ws: WebSocket, chat_id: int, user_id: int, db: Session = Depen
                 await manager.broadcast(chat_id, f"PINNED::{found.content}")
                 continue
 
-            msg = Message(chat_id=chat_id, user_id=user.id, content=text_in)
+            msg = Message(chat_id=chat_id, user_id=user_id, content=text_in)
             db.add(msg)
             db.commit()
             db.refresh(msg)
 
-            await manager.broadcast(chat_id, f"{user.username}: {msg.content}")
+            username = db.get(User, user_id).username
+            print(f"[WS] broadcast chat={chat_id} msg_id={msg.id}")
+            await manager.broadcast(chat_id, f"{username}: {msg.content}")
 
     except WebSocketDisconnect:
-        manager.disconnect(chat_id, ws)
-        await manager.broadcast(chat_id, f"System: {user.username} left the chat")
+        print(f"[WS] disconnect chat={chat_id} user={user_id}")
+        manager.disconnect(chat_id, websocket)
