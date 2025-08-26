@@ -8,6 +8,7 @@ from src.models.message import Message
 from src.models.user import User
 from src.utils.jwt import decode_token
 from src.utils.ws_manager import WSManager
+from src.utils.logger import logger
 
 router = APIRouter(tags=["ws"])
 manager = WSManager()
@@ -17,7 +18,8 @@ COOKIE_NAME = "access_token"
 async def ws_endpoint(websocket: WebSocket, chat_id: int, db: Session = Depends(get_db)):
     token = websocket.cookies.get(COOKIE_NAME) or websocket.query_params.get("token")
     if not token:
-        await websocket.close(code=4401, reason="Missing token"); return
+        await websocket.close(code=4401, reason="Missing token")
+        return
 
     try:
         payload = decode_token(token)
@@ -54,7 +56,7 @@ async def ws_endpoint(websocket: WebSocket, chat_id: int, db: Session = Depends(
     try:
         while True:
             text_in = await websocket.receive_text()
-            print(f"[WS] recv chat={chat_id} user={user_id} text={text_in!r}")
+            logger.info(f"[WS] recv chat={chat_id} user={user_id} text={text_in!r}")
 
             if text_in.startswith("/pin "):
                 needle = text_in[5:].strip()

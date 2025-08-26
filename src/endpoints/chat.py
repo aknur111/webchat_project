@@ -12,6 +12,7 @@ from src.schemas.chat import ChatCreate, ChatOut
 from src.schemas.message import MessageOut
 from src.utils.dependencies import get_current_user
 from src.utils.helpers import generate_join_code
+from src.schemas.chat import JoinByCodeIn
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
@@ -73,9 +74,6 @@ def join_chat_by_id(
         db.commit()
     return {"ok": True, "chat_id": chat_id}
 
-
-class JoinByCodeIn(BaseModel):
-    code: str
 
 
 @router.post("/join-by-code")
